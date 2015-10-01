@@ -1,1 +1,1 @@
-This is the branch PS_1 of the davinci_wsn repository branch master. This branch is used to make a interactive maker to move the davinci patient maunipulator. 
+This is the branch PS_1 of the davinci_wsn repository branch master. This branch is used to make a interactive marker to move the davinci patient maunipulator. 
