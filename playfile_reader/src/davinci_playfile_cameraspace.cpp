@@ -6,7 +6,7 @@
 
 //files must be designed to account for relative positions of PSM1 and PSM2 base frames w/rt world
 
-//the following are w/rt to frame ONE_PSM_BASE_LINK
+//the following are w/rt to left camera optical frame
 //entries 0-2 = origin of PSM1 gripper tip (a point mid-way between the gripper jaw tips)
 //entries 3-5 = x-axis direction for PSM1 gripper-tip frame (x-axis points parallel to gripper-jaw rotation axis; y-axis points from fingertip to fingertip)
 //entries 6-8 = z-axis direction for PSM1 gripper-tip frame (z-axis points from wrist to tip)
@@ -272,7 +272,6 @@ int main(int argc, char** argv) {
     while (tferr) {
         tferr=false;
         try {
-                //try to lookup transform from target frame "odom" to source frame "map"
             //The direction of the transform returned will be from the target_frame to the source_frame. 
              //Which if applied to data, will transform data in the source_frame into the target_frame. See tf/CoordinateFrameConventions#Transform_Direction
                 tfListener.lookupTransform("left_camera_optical_frame","one_psm_base_link",  ros::Time(0), tfResult_one);

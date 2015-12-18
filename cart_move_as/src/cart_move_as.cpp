@@ -73,10 +73,10 @@ geometry_msgs::Pose transformEigenAffine3fToPose(Eigen::Affine3f e) {
 
 Eigen::Affine3d transformPoseToEigenAffine3d(geometry_msgs::Pose pose) {
   Eigen::Affine3d affine;
-  // NEED TO FILL IN THIS FNC!!
+
     Eigen::Vector3d Oe;
 
-     Oe(0)= pose.position.x;
+    Oe(0)= pose.position.x;
     Oe(1)= pose.position.y;
     Oe(2)= pose.position.z;
     affine.translation() = Oe;
@@ -115,8 +115,9 @@ private:
 
     Eigen::Affine3d des_gripper_affine1_,des_gripper_affine2_;
     Eigen::Affine3d des_gripper1_affine_wrt_lcamera_,des_gripper2_affine_wrt_lcamera_;
-    double gripper_ang1_;
-    double gripper_ang2_; 
+    Eigen::Affine3d gripper1_affine_last_commanded_pose_,gripper2_affine_last_commanded_pose_;
+    double gripper_ang1_,last_gripper_ang1_;
+    double gripper_ang2_,last_gripper_ang2_; 
     double arrival_time_; 
     Eigen::Affine3d affine_lcamera_to_psm_one_,affine_lcamera_to_psm_two_;
 
@@ -133,7 +134,8 @@ public:
 
     void set_lcam2psm1(Eigen::Affine3d xf) { affine_lcamera_to_psm_one_=xf; };
     void set_lcam2psm2(Eigen::Affine3d xf) { affine_lcamera_to_psm_two_=xf; };
-  
+    void set_init_pose_gripper1(Eigen::Affine3d init_pose) {gripper1_affine_last_commanded_pose_ = init_pose;  };
+    void set_init_pose_gripper2(Eigen::Affine3d init_pose) {gripper2_affine_last_commanded_pose_ = init_pose;  };    
 };
 
 CartMoveActionServer::CartMoveActionServer(ros::NodeHandle &nh):nh_(nh),
@@ -167,6 +169,40 @@ js_action_client_("trajActionServer", true)
 
 
     ROS_INFO("connected to joint-space interpolator action server"); // if here, then we connected to the server;
+ 
+    // add these 11/12/15
+    ROS_INFO("getting transforms from camera to PSMs");
+    tf::TransformListener tfListener;
+    tf::StampedTransform tfResult_one,tfResult_two;    
+    Eigen::Affine3d affine_lcamera_to_psm_one,affine_lcamera_to_psm_two,affine_gripper_wrt_base;
+   bool tferr=true;
+    ROS_INFO("waiting for tf between base and right_hand...");
+    while (tferr) {
+        tferr=false;
+        try {
+            //The direction of the transform returned will be from the target_frame to the source_frame. 
+             //Which if applied to data, will transform data in the source_frame into the target_frame. See tf/CoordinateFrameConventions#Transform_Direction
+                tfListener.lookupTransform("left_camera_optical_frame","one_psm_base_link",  ros::Time(0), tfResult_one);
+                tfListener.lookupTransform("left_camera_optical_frame","two_psm_base_link",  ros::Time(0), tfResult_two);
+            } catch(tf::TransformException &exception) {
+                ROS_ERROR("%s", exception.what());
+                tferr=true;
+                ros::Duration(0.5).sleep(); // sleep for half a second
+                ros::spinOnce();                
+            }   
+    }
+    ROS_INFO("tf is good");
+    //affine_lcamera_to_psm_one is the position/orientation of psm1 base frame w/rt left camera link frame
+    // need to extend this to camera optical frame
+    affine_lcamera_to_psm_one_ = transformTFToEigen(tfResult_one);
+    affine_lcamera_to_psm_two_ = transformTFToEigen(tfResult_two); 
+    ROS_INFO("transform from left camera to psm one:");
+    cout<<affine_lcamera_to_psm_one_.linear()<<endl;
+    cout<<affine_lcamera_to_psm_one_.translation().transpose()<<endl;
+    ROS_INFO("transform from left camera to psm two:");
+    cout<<affine_lcamera_to_psm_two_.linear()<<endl;
+    cout<<affine_lcamera_to_psm_two_.translation().transpose()<<endl; 
+
 }
 
 void CartMoveActionServer::executeCB(const actionlib::SimpleActionServer<cwru_action::cart_moveAction>::GoalConstPtr& goal) {
@@ -182,7 +218,15 @@ void CartMoveActionServer::executeCB(const actionlib::SimpleActionServer<cwru_ac
    geometry_msgs::PoseStamped des_pose_gripper1 = goal->des_pose_gripper1;
    geometry_msgs::PoseStamped des_pose_gripper2 = goal->des_pose_gripper2;
    // convert the above to affine objects:
+   des_gripper1_affine_wrt_lcamera_ = transformPoseToEigenAffine3d(des_pose_gripper1.pose);
+   cout<<"gripper1 desired pose;  "<<endl;
+   cout<<des_gripper1_affine_wrt_lcamera_.linear()<<endl;
+   cout<<"origin: "<<des_gripper1_affine_wrt_lcamera_.translation().transpose()<<endl;
 
+   des_gripper2_affine_wrt_lcamera_ = transformPoseToEigenAffine3d(des_pose_gripper2.pose);
+   cout<<"gripper2 desired pose;  "<<endl;
+   cout<<des_gripper2_affine_wrt_lcamera_.linear()<<endl;
+   cout<<"origin: "<<des_gripper2_affine_wrt_lcamera_.translation().transpose()<<endl;
 
    //do IK to convert these to joint angles:
     //Eigen::VectorXd q_vec1,q_vec2;
@@ -199,28 +243,70 @@ void CartMoveActionServer::executeCB(const actionlib::SimpleActionServer<cwru_ac
 
     trajectory_msgs::JointTrajectoryPoint trajectory_point; //,trajectory_point2; 
     trajectory_point.positions.resize(14);
+    
+    // first, reiterate previous command:
+    // this could be easier, if saved previous joint-space trajectory point...
+    des_gripper_affine1_ = affine_lcamera_to_psm_one_.inverse()*gripper1_affine_last_commanded_pose_; //previous pose
+    ik_solver_.ik_solve(des_gripper_affine1_); //convert desired pose into equiv joint displacements
+    q_vec1 = ik_solver_.get_soln(); 
+    q_vec1(6) = last_gripper_ang1_; // include desired gripper opening angle
+    
+    ROS_INFO("stored previous command to gripper two: ");
+   cout<<gripper2_affine_last_commanded_pose_.linear()<<endl;
+   cout<<"origin: "<<gripper2_affine_last_commanded_pose_.translation().transpose()<<endl;
+   
+    des_gripper_affine2_ = affine_lcamera_to_psm_two_.inverse()*gripper2_affine_last_commanded_pose_; //previous pose
+    ik_solver_.ik_solve(des_gripper_affine2_); //convert desired pose into equiv joint displacements
+    q_vec2 = ik_solver_.get_soln(); 
+    cout<<"q_vec2 of stored pose: "<<endl;
+    for (int i=0;i<6;i++) {
+        cout<<q_vec2[i]<<", ";
+    }
+    cout<<endl;
+    q_vec2(6) = last_gripper_ang2_; // include desired gripper opening angle
+    
+       for (int i=0;i<7;i++) {
+            trajectory_point.positions[i] = q_vec1(i);
+            trajectory_point.positions[i+7] = q_vec2(i);  
+        }
+    cout<<"start traj pt: "<<endl;
+    for (int i=0;i<14;i++) {
+        cout<<trajectory_point.positions[i]<<", ";
+    }
+    cout<<endl;
+      trajectory_point.time_from_start = ros::Duration(0.0); // start time set to 0
+    // PUSH IN THE START POINT:
+      des_trajectory.points.push_back(trajectory_point);            
 
+    // compute and append the goal point, in joint space trajectory:
+    des_gripper_affine1_ = affine_lcamera_to_psm_one_.inverse()*des_gripper1_affine_wrt_lcamera_;
 
-   des_gripper_affine1_ = affine_lcamera_to_psm_one_.inverse()*des_gripper1_affine_wrt_lcamera_;
-
-        ik_solver_.ik_solve(des_gripper_affine1_); //convert desired pose into equiv joint displacements
-        q_vec1 = ik_solver_.get_soln(); 
+    ik_solver_.ik_solve(des_gripper_affine1_); //convert desired pose into equiv joint displacements
+    q_vec1 = ik_solver_.get_soln(); 
     q_vec1(6) = gripper_ang1_; // include desired gripper opening angle
 
-   des_gripper_affine2_ = affine_lcamera_to_psm_two_.inverse()*des_gripper2_affine_wrt_lcamera_;
+    des_gripper_affine2_ = affine_lcamera_to_psm_two_.inverse()*des_gripper2_affine_wrt_lcamera_;
     ik_solver_.ik_solve(des_gripper_affine2_); //convert desired pose into equiv joint displacements
-        q_vec2 = ik_solver_.get_soln();  
-        q_vec2(6) = gripper_ang2_;
+    q_vec2 = ik_solver_.get_soln();  
+    cout<<"q_vec2 of goal pose: "<<endl;
+    for (int i=0;i<6;i++) {
+        cout<<q_vec2[i]<<", ";
+    }
+    cout<<endl;
+    q_vec2(6) = gripper_ang2_;
         for (int i=0;i<7;i++) {
             trajectory_point.positions[i] = q_vec1(i);
             trajectory_point.positions[i+7] = q_vec2(i);  
         }
       trajectory_point.time_from_start = ros::Duration(arrival_time_);
-    // NEED CONSISTENT START POINT:
+   cout<<"goal traj pt: "<<endl;
+    for (int i=0;i<14;i++) {
+        cout<<trajectory_point.positions[i]<<", ";
+    }
+    cout<<endl;
       des_trajectory.points.push_back(trajectory_point);
+
     js_goal_.trajectory = des_trajectory;
-//boost::bind(&CartMoveActionServer::executeCB, this, _1)
-//xxx not compiling next line...
 
     // Need boost::bind to pass in the 'this' pointer
   // see example: http://library.isr.ist.utl.pt/docs/roswiki/actionlib_tutorials%282f%29Tutorials%282f%29Writing%2820%29a%2820%29Callback%2820%29Based%2820%29Simple%2820%29Action%2820%29Client.html
@@ -230,7 +316,8 @@ void CartMoveActionServer::executeCB(const actionlib::SimpleActionServer<cwru_ac
   //              Client::SimpleFeedbackCallback());
 
     js_action_client_.sendGoal(js_goal_, boost::bind(&CartMoveActionServer::js_doneCb_,this,_1,_2)); // we could also name additional callback functions here, if desired
-    //    action_client.sendGoal(goal, &doneCb, &activeCb, &feedbackCb); //e.g., like this
+    //    action_client.sendGoal(goal, &doneCb, &activeCb, &feedbackCb); //alt--more callback funcs possible
+    
     double t_timeout=arrival_time_+2.0; //wait 2 sec longer than expected duration of move
     
     bool finished_before_timeout = js_action_client_.waitForResult(ros::Duration(t_timeout));
@@ -243,11 +330,18 @@ void CartMoveActionServer::executeCB(const actionlib::SimpleActionServer<cwru_ac
 
     ROS_INFO("completed callback" );
     cart_move_as_.setSucceeded(cart_result_); // tell the client that we were successful acting on the request, and return the "result" message 
+    
+    //let's remember the last pose commanded, so we can use it as start pose for next move
+    gripper1_affine_last_commanded_pose_ = des_gripper1_affine_wrt_lcamera_;
+    gripper2_affine_last_commanded_pose_ = des_gripper2_affine_wrt_lcamera_;    
+    //and the jaw opening angles:
+    last_gripper_ang1_=gripper_ang1_;
+    last_gripper_ang2_=gripper_ang2_;
 }
 
 void CartMoveActionServer::js_doneCb_(const actionlib::SimpleClientGoalState& state,
         const davinci_traj_streamer::trajResultConstPtr& result) {
-  ROS_INFO("dummy js_doneCb");
+  ROS_INFO("done-callback pinged by joint-space interpolator action server done");
 }
 
 
@@ -260,14 +354,14 @@ void doneCb(const actionlib::SimpleClientGoalState& state,
 
 
 int main(int argc, char** argv) {
-    ros::init(argc, argv, "playfile_jointspace"); //node name
+    ros::init(argc, argv, "cart_move_as"); //node name
     ros::NodeHandle nh; // create a node handle; need to pass this to the class constructor
 
-    Eigen::Affine3d des_gripper_affine1,des_gripper_affine2;
+    Eigen::Affine3d init_gripper_affine1,init_gripper_affine2;
    ROS_INFO("getting transforms from camera to PSMs");
     tf::TransformListener tfListener;
     tf::StampedTransform tfResult_one,tfResult_two;    
-
+    tf::StampedTransform tf_init_gripper1,tf_init_gripper2; 
     // get these transform values to CartMoveActionServer
     Eigen::Affine3d affine_lcamera_to_psm_one,affine_lcamera_to_psm_two,affine_gripper_wrt_base;
     // need to get these poses from goal message
@@ -282,6 +376,8 @@ int main(int argc, char** argv) {
              //Which if applied to data, will transform data in the source_frame into the target_frame. See tf/CoordinateFrameConventions#Transform_Direction
                 tfListener.lookupTransform("left_camera_optical_frame","one_psm_base_link",  ros::Time(0), tfResult_one);
                 tfListener.lookupTransform("left_camera_optical_frame","two_psm_base_link",  ros::Time(0), tfResult_two);
+                tfListener.lookupTransform("left_camera_optical_frame","one_tool_tip_link",  ros::Time(0), tf_init_gripper1);                
+                tfListener.lookupTransform("left_camera_optical_frame","two_tool_tip_link",  ros::Time(0), tf_init_gripper2);                
             } catch(tf::TransformException &exception) {
                 ROS_ERROR("%s", exception.what());
                 tferr=true;
@@ -294,114 +390,33 @@ int main(int argc, char** argv) {
     // need to extend this to camera optical frame
     affine_lcamera_to_psm_one = transformTFToEigen(tfResult_one);
     affine_lcamera_to_psm_two = transformTFToEigen(tfResult_two); 
+    init_gripper_affine1 =  transformTFToEigen(tf_init_gripper1);  
+    init_gripper_affine2 =  transformTFToEigen(tf_init_gripper2);     
     ROS_INFO("transform from left camera to psm one:");
     cout<<affine_lcamera_to_psm_one.linear()<<endl;
     cout<<affine_lcamera_to_psm_one.translation().transpose()<<endl;
     ROS_INFO("transform from left camera to psm two:");
     cout<<affine_lcamera_to_psm_two.linear()<<endl;
     cout<<affine_lcamera_to_psm_two.translation().transpose()<<endl; 
+    
+    ROS_INFO("current pose, gripper 1:");
+    cout<<init_gripper_affine1.linear()<<endl;
+    cout<<init_gripper_affine1.translation().transpose()<<endl;     
+    
+    ROS_INFO("current pose, gripper 2:");
+    cout<<init_gripper_affine2.linear()<<endl;
+    cout<<init_gripper_affine2.translation().transpose()<<endl;      
 
     ROS_INFO("instantiating a cartesian-move action server: ");
     CartMoveActionServer cartMoveActionServer(nh);
     //inform cartMoveActionServer of camera frame transforms:
     cartMoveActionServer.set_lcam2psm1(affine_lcamera_to_psm_one);
     cartMoveActionServer.set_lcam2psm2(affine_lcamera_to_psm_two);
+    cartMoveActionServer.set_init_pose_gripper1(init_gripper_affine1);
+    cartMoveActionServer.set_init_pose_gripper2(init_gripper_affine2);    
     while(ros::ok()) {
       ros::spinOnce();
     }
-
-//xxx put this stuff inside action server:
-    //connect to the joint-space interpolator action server:
-   //davinci_traj_streamer::trajGoal goal;
-
-    //cout<<"ready to connect to action server; enter 1: ";
-    //cin>>ans;
-    // use the name of our server, which is: trajActionServer (named in traj_interpolator_as.cpp)
-    //actionlib::SimpleActionClient<davinci_traj_streamer::trajAction> action_client("trajActionServer", true);
-
-    // attempt to connect to the server:
-/*
-    ROS_INFO("waiting for server: ");
-    bool server_exists = action_client.waitForServer(ros::Duration(5.0)); // wait for up to 5 seconds
-    // something odd in above: does not seem to wait for 5 seconds, but returns rapidly if server not running
-        int max_tries = 0;
-        while (!server_exists) {
-           server_exists = action_client.waitForServer(ros::Duration(5.0)); // wait for up to 5 seconds
-           // something odd in above: does not seem to wait for 5 seconds, but returns rapidly if server not running
-           ros::spinOnce();
-           ros::Duration(0.1).sleep();
-           ROS_INFO("retrying...");
-           max_tries++;
-           if (max_tries>100)
-               break;
-        }
-
-    if (!server_exists) {
-        ROS_WARN("could not connect to server; quitting");
-        return 0; // bail out; optionally, could print a warning message and retry
-    }
-    //server_exists = action_client.waitForServer(); //wait forever 
-
-
-    ROS_INFO("connected to action server"); // if here, then we connected to the server;
-    
-    // given a point in optical frame, premultiply by above transforms to express in psm base frames
-    
-    //do IK to convert these to joint angles:
-    //Eigen::VectorXd q_vec1,q_vec2;
-    Vectorq7x1 q_vec1,q_vec2;
-    q_vec1.resize(7);
-    q_vec2.resize(7);
-    ROS_INFO("instantiating  forward solver and an ik_solver");
-    Davinci_fwd_solver davinci_fwd_solver; //instantiate a forward-kinematics solver    
-    Davinci_IK_solver ik_solver;
-    
-    trajectory_msgs::JointTrajectory des_trajectory; // an empty trajectory 
-    des_trajectory.points.clear(); // can clear components, but not entire trajectory_msgs
-    des_trajectory.joint_names.clear(); //could put joint names in...but I assume a fixed order and fixed size, so this is unnecessary
-    // if using wsn's trajectory streamer action server
-    des_trajectory.header.stamp = ros::Time::now();
-
-    trajectory_msgs::JointTrajectoryPoint trajectory_point; //,trajectory_point2; 
-    trajectory_point.positions.resize(14);
-
-
-   des_gripper_affine1 = affine_lcamera_to_psm_one.inverse()*des_gripper1_affine_wrt_lcamera;
-
-        ik_solver.ik_solve(des_gripper_affine1); //convert desired pose into equiv joint displacements
-        q_vec1 = ik_solver.get_soln(); 
-    q_vec1(6) = g_gripper_ang1; // include desired gripper opening angle
-
-   des_gripper_affine2 = affine_lcamera_to_psm_two.inverse()*des_gripper2_affine_wrt_lcamera;
-    ik_solver.ik_solve(des_gripper_affine2); //convert desired pose into equiv joint displacements
-        q_vec2 = ik_solver.get_soln();  
-        q_vec2(6) = g_gripper_ang2;
-        for (int i=0;i<7;i++) {
-            trajectory_point.positions[i] = q_vec1(i);
-            trajectory_point.positions[i+7] = q_vec2(i);  
-        }
-      trajectory_point.time_from_start = ros::Duration(g_arrival_time);
-    // NEED CONSISTENT START POINT:
-      des_trajectory.points.push_back(trajectory_point);
-    goal.trajectory = des_trajectory;
-    action_client.sendGoal(goal, &doneCb); // we could also name additional callback functions here, if desired
-    //    action_client.sendGoal(goal, &doneCb, &activeCb, &feedbackCb); //e.g., like this
-    double t_timeout=g_arrival_time+2.0; //wait 2 sec longer than expected duration of move
-    
-    bool finished_before_timeout = action_client.waitForResult(ros::Duration(t_timeout));
-    //bool finished_before_timeout = action_client.waitForResult(); // wait forever...
-    if (!finished_before_timeout) {
-        ROS_WARN("giving up waiting on result ");
-        return 0;
-    } else {
-        ROS_INFO("finished before timeout");
-    }
-
-
-
-    cout << "Good bye!\n";
-    return 0;
-  */
 }
 
 

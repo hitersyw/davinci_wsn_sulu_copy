@@ -20,7 +20,7 @@
   <joint name="camera_joint" type="fixed">
       <parent link="camera"/>
       <child link="right_camera_link"/>
-      <origin rpy="0.0 1.5708 1.5708" xyz="-0.005 0.0 0.5"/>
+      <origin rpy="0.0 1.5708 1.5708" xyz="-0.0028 0.0 0.5"/>
   </joint>
 
   <link name="right_camera_link">
@@ -43,7 +43,7 @@
     <joint name="left_camera_joint" type="fixed">
       <parent link="camera"/>
       <child link="left_camera_link"/>
-      <origin rpy="0.0 1.5708 1.5708" xyz="0.005 0.00 0.5"/>
+      <origin rpy="0.0 1.5708 1.5708" xyz="0.0028 0.00 0.5"/>
   </joint>
 
   <link name="left_camera_link">
@@ -85,7 +85,7 @@
     <sensor type="camera" name="right_camera">
       <update_rate>30.0</update_rate>
       <camera name="right_camera">
-        <horizontal_fov>0.6</horizontal_fov>
+        <horizontal_fov>0.702</horizontal_fov>
         <image>
           <width>640</width>
           <height>480</height>
@@ -125,7 +125,7 @@
     <sensor type="camera" name="left_camera">
       <update_rate>30.0</update_rate>
       <camera name="left_camera">
-        <horizontal_fov>0.6</horizontal_fov>
+        <horizontal_fov>0.702</horizontal_fov>
         <image>
           <width>640</width>
           <height>480</height>

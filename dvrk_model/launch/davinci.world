@@ -13,9 +13,19 @@
         <pose>0.0 0 0 0 -0 0</pose>
     </include>
     <include>
-        <uri>model://1mm_bar</uri>
-         <pose>0.0 0 0.7 0 0 0</pose>
+        <uri>model://1mm_cube</uri>
+         <pose>0.0 0.0 0.7 0 0 0</pose>
     </include>
+
+
+<!--     <include>
+        <uri>model://dacinci_table</uri>
+        <pose>-0.326 -0.034 0.075 0 -0 0</pose>
+    </include>
+    <include>
+        <uri>model://5mm_bar</uri>
+         <pose>0.007 0.0005 0.85 0 -pi/2 0</pose>
+    </include> -->
   
             
     <physics type="ode">

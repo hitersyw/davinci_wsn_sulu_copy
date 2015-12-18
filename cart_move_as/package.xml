@@ -51,6 +51,7 @@
 <build_depend>actionlib</build_depend>
 <build_depend>tf</build_depend>
 <build_depend>cwru_action</build_depend>
+<build_depend>cwru_davinci_srv</build_depend>
   <run_depend>roscpp</run_depend>
 <run_depend>std_msgs</run_depend>
 <run_depend>davinci_kinematics</run_depend>
@@ -62,6 +63,7 @@
 <run_depend>actionlib</run_depend>
 <run_depend>tf</run_depend>
 <run_depend>cwru_action</run_depend>
+<run_depend>cwru_davinci_srv</run_depend>
 <run_depend>message_runtime</run_depend>
   <!-- The export tag contains other, unspecified, tags -->
   <export>
