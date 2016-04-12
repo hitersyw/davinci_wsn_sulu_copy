@@ -11,6 +11,8 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   sensor_msgs
   std_msgs
+  geometry_msgs
+  cwru_opencv_common
   cwru_srv
 )
    find_package(OpenCV REQUIRED)
@@ -91,7 +93,7 @@ catkin_package()
 catkin_package(
  # INCLUDE_DIRS include
   LIBRARIES ${PROJECT_NAME}
-  CATKIN_DEPENDS cv_bridge image_transport roscpp sensor_msgs std_msgs
+  CATKIN_DEPENDS cv_bridge image_transport roscpp sensor_msgs std_msgs geometry_msgs
   DEPENDS system_lib eigen
 )
 
@@ -99,7 +101,7 @@ catkin_package(
 ## Build ##
 ###########
 
-## Specify additional locations of header files
+## Specify additional locations of header filesdavinci_find_blue_pixels
 ## Your package locations should be listed before other locations
 # include_directories(include)
 include_directories(
@@ -118,7 +120,7 @@ include_directories(
 
 #add_executable(images_timesync src/images_timesync.cpp)
 add_executable(davinci_find_red_pixels src/davinci_find_red_pixels_centroid.cpp)
-#add_executable(davinci_find_blue_pixels src/davinci_find_blue_pixels_centroid.cpp)
+add_executable(davinci_find_blue_pixels src/davinci_find_blue_pixels_centroid.cpp)
 add_executable(color_interp_v2 src/color_interp_v2.cpp)
 add_executable(color_interp_v3 src/color_interp_v3.cpp)
 add_executable(color_interp_v4 src/color_interp_v4.cpp)
@@ -132,7 +134,7 @@ target_link_libraries(davinci_find_red_pixels ${OpenCV_LIBRARIES}
    ${catkin_LIBRARIES}
  )
 
-#target_link_libraries(davinci_find_blue_pixels ${OpenCV_LIBRARIES}  ${catkin_LIBRARIES} )
+target_link_libraries(davinci_find_blue_pixels ${OpenCV_LIBRARIES}  ${catkin_LIBRARIES} )
 
 target_link_libraries(color_interp_v2 ${OpenCV_LIBRARIES}   ${catkin_LIBRARIES})
 target_link_libraries(color_interp_v3 ${OpenCV_LIBRARIES}   ${catkin_LIBRARIES})

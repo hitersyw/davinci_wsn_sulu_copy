@@ -6,7 +6,10 @@
 #include <sensor_msgs/image_encodings.h>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
-#include <cwru_msg/vec_of_doubles.h>
+// #include <cwru_msg/vec_of_doubles.h>
+#include <geometry_msgs/Point.h>
+#include "cwru_opencv_common/projective_geometry.h"
+
 
 static const std::string OPENCV_WINDOW = "Image window2";
 using namespace std;
@@ -14,28 +17,35 @@ using namespace std;
 int g_blueratio;
 double g_du_right,g_du_left,g_dv_right,g_dv_left;
 const double width_in_pixels = 640;
-const double height_in_pixels = 240;
+const double height_in_pixels = 480;
 const double baseline = 0.010;
 const double f = 1034.0; // from horizontal fov = 0.6
 
 class ImageConverter {
+
+private:
     ros::NodeHandle nh_;
     image_transport::ImageTransport it_;
-    image_transport::Subscriber image_sub_;
+    image_transport::Subscriber image_sub_left_;
     image_transport::Subscriber image_sub_right_;    
     image_transport::Publisher image_pub_;
+
+    float i_avg_left;
+    float j_avg_left;
+    float i_avg_right;
+    float j_avg_right;
 
 public:
 
     ImageConverter()
     : it_(nh_) {
         // Subscribe to input video feed and publish output video feed
-        image_sub_ = it_.subscribe("/davinci/left_camera/image_raw", 1,
-                &ImageConverter::imageCb, this);
+        image_sub_left_ = it_.subscribe("/davinci_endo/left/image_rect_color", 1,
+                &ImageConverter::imageCbLeft, this);
         image_pub_ = it_.advertise("/image_converter/output_video2", 1);
 
         //extend to right camera:
-        image_sub_right_ = it_.subscribe("/davinci/right_camera/image_raw", 1,
+        image_sub_right_ = it_.subscribe("/davinci_endo/right/image_rect_color", 1,
                 &ImageConverter::imageCbRight, this);
         cv::namedWindow(OPENCV_WINDOW);
     }
@@ -44,7 +54,7 @@ public:
         cv::destroyWindow(OPENCV_WINDOW);
     }
 
-    void imageCb(const sensor_msgs::ImageConstPtr& msg) {
+    void imageCbLeft(const sensor_msgs::ImageConstPtr& msg) {
         cv_bridge::CvImagePtr cv_ptr;
         try {
             cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
@@ -91,11 +101,15 @@ public:
          /* */
         cout << "npix: " << npix << endl;
         if (npix>0) {
-            cout << "i_avg: " << isum / npix << endl;
-            cout << "j_avg: " << jsum / npix << endl;
+
+            i_avg_left = (float) isum / (float) npix;
+            i_avg_left = (float) jsum / (float) npix;
+            cout << "i_avg: " << i_avg_left << endl;
+            cout << "j_avg: " << j_avg_left << endl;
+
         }
-        g_du_left= (((double) (isum))/((double) npix))-width_in_pixels/2;
-        g_dv_left= (((double) (jsum))/((double) npix))-height_in_pixels/2;
+        // g_du_left= (((double) (isum))/((double) npix))-width_in_pixels/2;
+        // g_dv_left= (((double) (jsum))/((double) npix))-height_in_pixels/2;
 
         // Update GUI Window
         cv::imshow(OPENCV_WINDOW, cv_ptr->image);
@@ -153,11 +167,16 @@ public:
          /* */
         cout << "npix_right: " << npix_right << endl;
         if (npix_right>0) {
-            cout << "i_avg: " << isum_right / npix_right << endl;
-            cout << "j_avg: " << jsum_right / npix_right << endl;
+
+            i_avg_right = (float) isum_right / (float) npix_right;
+            j_avg_right = (float) jsum_right / (float) npix_right;
+            cout << "i_avg: " << i_avg_right << endl;
+            cout << "j_avg: " << j_avg_right << endl;
+
+
         }
-        g_du_right= (((double) (isum_right))/((double) npix_right))-width_in_pixels/2;
-        g_dv_right= (((double) (jsum_right))/((double) npix_right))-height_in_pixels/2;        
+        // g_du_right= (((double) (isum_right))/((double) npix_right))-width_in_pixels/2;
+        // g_dv_right= (((double) (jsum_right))/((double) npix_right))-height_in_pixels/2;        
 
                 
         // Update GUI Window
@@ -167,16 +186,39 @@ public:
         // Output modified video stream
         //image_pub_.publish(cv_ptr->toImageMsg());
 
-    }    
+    }
+
+    void deprojectPoints(geometry_msgs::Point& centroid_coords_msg, const  cv::Mat &P_l , const cv::Mat &P_r)
+    {
+        cv_local::stereoCorrespondence stereo_correspond;
+
+        cv::Point2f left_point(i_avg_left, j_avg_left);
+        cv::Point2f right_point(i_avg_right, j_avg_right);
+
+        stereo_correspond.left = left_point;
+        stereo_correspond.right = right_point;
+
+        cv::Point3d temp_point = cv_projective::deprojectStereoPoint(stereo_correspond, P_l , P_r);
+        centroid_coords_msg.x = temp_point.x;
+        centroid_coords_msg.y = temp_point.y;
+        centroid_coords_msg.z = temp_point.z;
+    }
 };
 
     int main(int argc, char** argv) {
         ros::init(argc, argv, "blue_triangulator");
         ros::NodeHandle n; // 
-        ros::Publisher pub = n.advertise<cwru_msg::vec_of_doubles>("blue_centroid", 1);        
-        ImageConverter ic;
-        cwru_msg::vec_of_doubles centroid_coords_msg;
-        centroid_coords_msg.dvec.resize(3);
+        ros::Publisher pub = n.advertise<geometry_msgs::Point>("blue_centroid", 1);
+        // instaniate a camera projection matrix object
+        cv_projective::cameraProjectionMatrices cam_proj_mat(n, 
+            std::string("/davinci_endo/left/camera_info"), std::string("/davinci_endo/right/camera_info"));
+        cv::Mat P_l_mat; // define a cv::Mat variable to store left camera projection matrix
+        cv::Mat P_r_mat; // define a cv::Mat variable to store right camera projection matrix
+        
+        ImageConverter imageConverter;
+        // cwru_msg::vec_of_doubles centroid_coords_msg;
+        geometry_msgs::Point centroid_coords_msg;
+        // centroid_coords_msg.dvec.resize(3);
         cout<<"enter blue ratio threshold: (e.g. 10) ";
         cin>>g_blueratio;
         ros::Duration timer(0.1);
@@ -185,15 +227,23 @@ public:
         //double baseline=0.010; //interocular distance
         //double f = 1032.0; // focal length, in pixels
         while(ros::ok()) {
-            disparity_u = g_du_right-g_du_left;
-            cout<<"disparity in u: "<<disparity_u<<endl;
-            z = baseline*f/disparity_u;
-            x = 0.5*((g_du_right + g_du_left)/f)*z -baseline/2;
-            y = 0.5*((g_dv_right+g_dv_left)/f)*z;
-            ROS_INFO("x,y,z = %f, %f, %f",x,y,z);
-            centroid_coords_msg.dvec[0]=x;
-            centroid_coords_msg.dvec[1]=y;
-            centroid_coords_msg.dvec[2]=z;
+
+            P_l_mat = cam_proj_mat.getLeftProjectionMatrix();
+            P_r_mat = cam_proj_mat.getRightProjectionMatrix();
+            imageConverter.deprojectPoints(centroid_coords_msg, P_l_mat, P_r_mat);
+            // disparity_u = g_du_right-g_du_left;
+            // cout<<"disparity in u: "<<disparity_u<<endl;
+            // z = baseline*f/disparity_u;
+            // x = 0.5*((g_du_right + g_du_left)/f)*z -baseline/2;
+            // y = 0.5*((g_dv_right+g_dv_left)/f)*z;
+            // ROS_INFO("x,y,z = %f, %f, %f",x,y,z);
+            // centroid_coords_msg.dvec[0]=x;
+            // centroid_coords_msg.dvec[1]=y;
+            // centroid_coords_msg.dvec[2]=z;
+
+
+
+
             pub.publish(centroid_coords_msg);
             ros::spinOnce();
             timer.sleep();
