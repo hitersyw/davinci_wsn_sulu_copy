@@ -64,15 +64,15 @@ public:
         }
         // look for red pixels; turn all other pixels black, and turn red pixels white
         int npix = 0;
-        int isum = 0;
-        int jsum = 0;
+        int isum = 0; // row sum or y
+        int jsum = 0; // col sum or x
         int redval,blueval,greenval,testval;
         cv::Vec3b rgbpix;
         //image.at<uchar>(j,i)= 255;
         /**/
-        for (int i = 0; i < cv_ptr->image.cols; i++)
-            for (int j = 0; j < cv_ptr->image.rows; j++) {
-                rgbpix = cv_ptr->image.at<cv::Vec3b>(j,i); //[j][i];
+        for (int i = 0; i < cv_ptr->image.rows; i++)
+            for (int j = 0; j < cv_ptr->image.cols; j++) {
+                rgbpix = cv_ptr->image.at<cv::Vec3b>(i,j); //[i][j];
                 redval = rgbpix[2]+1;
                 blueval = rgbpix[0]+1;
                 greenval = rgbpix[1]+1;
@@ -81,9 +81,9 @@ public:
                 //cout<<"image("<<j<<","<<i<<")[0] = "<<redval<<endl;
                 //if blue, paint it red:
                 if (testval > g_blueratio) {
-                    cv_ptr->image.at<cv::Vec3b>(j, i)[0] = 0;
-                    cv_ptr->image.at<cv::Vec3b>(j, i)[1] = 0;
-                    cv_ptr->image.at<cv::Vec3b>(j, i)[2] = 255;
+                    cv_ptr->image.at<cv::Vec3b>(i, j)[0] = 0;
+                    cv_ptr->image.at<cv::Vec3b>(i, j)[1] = 0;
+                    cv_ptr->image.at<cv::Vec3b>(i, j)[2] = 255;
                     npix++;
                     isum += i;
                     jsum += j;
@@ -103,9 +103,9 @@ public:
         if (npix>0) {
 
             i_avg_left = (float) isum / (float) npix;
-            i_avg_left = (float) jsum / (float) npix;
-            cout << "i_avg: " << i_avg_left << endl;
-            cout << "j_avg: " << j_avg_left << endl;
+            j_avg_left = (float) jsum / (float) npix;
+            cout << "i_left_avg: " << i_avg_left << endl;
+            cout << "j_left_avg: " << j_avg_left << endl;
 
         }
         // g_du_left= (((double) (isum))/((double) npix))-width_in_pixels/2;
@@ -130,15 +130,15 @@ public:
         }
         // look for red pixels; turn all other pixels black, and turn red pixels white
         int npix_right = 0;
-        int isum_right = 0;
-        int jsum_right = 0;
+        int isum_right = 0; // row sum or y
+        int jsum_right = 0; // col sum or x
         int redval,blueval,greenval,testval;
         cv::Vec3b rgbpix;
         //image.at<uchar>(j,i)= 255;
         /**/
-        for (int i = 0; i < cv_ptr->image.cols; i++)
-            for (int j = 0; j < cv_ptr->image.rows; j++) {
-                rgbpix = cv_ptr->image.at<cv::Vec3b>(j,i); //[j][i];
+        for (int i = 0; i < cv_ptr->image.rows; i++)
+            for (int j = 0; j < cv_ptr->image.cols; j++) {
+                rgbpix = cv_ptr->image.at<cv::Vec3b>(i, j); //[i][j];
                 redval = rgbpix[2]+1;
                 blueval = rgbpix[0]+1;
                 greenval = rgbpix[1]+1;
@@ -147,9 +147,9 @@ public:
                 //cout<<"image("<<j<<","<<i<<")[0] = "<<redval<<endl;
                 //if blue, paint it red:
                 if (testval > g_blueratio) {
-                    cv_ptr->image.at<cv::Vec3b>(j, i)[0] = 0;
-                    cv_ptr->image.at<cv::Vec3b>(j, i)[1] = 0;
-                    cv_ptr->image.at<cv::Vec3b>(j, i)[2] = 255;
+                    cv_ptr->image.at<cv::Vec3b>(i, j)[0] = 0;
+                    cv_ptr->image.at<cv::Vec3b>(i, j)[1] = 0;
+                    cv_ptr->image.at<cv::Vec3b>(i, j)[2] = 255;
                     npix_right++;
                     isum_right += i;
                     jsum_right += j;
@@ -170,8 +170,8 @@ public:
 
             i_avg_right = (float) isum_right / (float) npix_right;
             j_avg_right = (float) jsum_right / (float) npix_right;
-            cout << "i_avg: " << i_avg_right << endl;
-            cout << "j_avg: " << j_avg_right << endl;
+            cout << "i_right_avg: " << i_avg_right << endl;
+            cout << "j_right_avg: " << j_avg_right << endl;
 
 
         }
@@ -192,11 +192,11 @@ public:
     {
         cv_local::stereoCorrespondence stereo_correspond;
 
-        cv::Point2f left_point(i_avg_left, j_avg_left);
-        cv::Point2f right_point(i_avg_right, j_avg_right);
+        // cv::Point2f left_point(j_avg_left, i_avg_left); // put j first then i follow
+        // cv::Point2f right_point(j_avg_right, i_avg_right);
 
-        stereo_correspond.left = left_point;
-        stereo_correspond.right = right_point;
+        stereo_correspond.left = cv::Point2f(j_avg_left, i_avg_left);
+        stereo_correspond.right = cv::Point2f(j_avg_right, i_avg_right);
 
         cv::Point3d temp_point = cv_projective::deprojectStereoPoint(stereo_correspond, P_l , P_r);
         centroid_coords_msg.x = temp_point.x;
