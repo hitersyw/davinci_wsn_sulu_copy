@@ -1,7 +1,7 @@
 <?xml version='1.0'?>
 <sdf version='1.4'>
   <model name="5mm_cube">
-    <static>true</static>
+    <static>false</static>
     <link name='link'>
       <pose>0 0 0 0 0 0</pose>
       <inertial>
