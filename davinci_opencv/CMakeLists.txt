@@ -4,7 +4,6 @@ project(davinci_opencv)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(Eigen3 REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
   cv_bridge
   image_transport
@@ -15,9 +14,10 @@ find_package(catkin REQUIRED COMPONENTS
   cwru_opencv_common
   cwru_srv
 )
-   find_package(OpenCV REQUIRED)
-   include_directories( ${EIGEN3_INCLUDE_DIR} ${OpenCV_INCLUDE_DIRS})
-
+find_package(OpenCV REQUIRED)
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR})
+find_package(Eigen3 REQUIRED)
+include_directories(${EIGEN3_INCLUDE_DIR})
 add_definitions(${EIGEN_DEFINITIONS})
 
 ## System dependencies are found with CMake's conventions
